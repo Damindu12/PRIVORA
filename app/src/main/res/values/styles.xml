@@ -12,7 +12,6 @@
 
     <style name="Theme.Privora.LockOverlay" parent="Theme.Privora">
         <item name="android:windowFullscreen">true</item>
-        <item name="android:windowShowWhenLocked">true</item>
         <item name="android:windowBackground">#101014</item>
     </style>
 
