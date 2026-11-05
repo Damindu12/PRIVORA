@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">PRIVORA detects when selected apps are opened so it can display your app lock screen. It does not read screen content. If enabled by the device owner, it can also use the camera after repeated incorrect PIN attempts, with camera permission and a visible capture screen.</string>
+</resources>

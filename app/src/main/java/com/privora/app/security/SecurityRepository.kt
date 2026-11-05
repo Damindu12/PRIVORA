@@ -6,16 +6,9 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
-/**
- * PRIVORA Hardware Security & Storage Manager
- * Uses Android Keystore (AES-256-GCM) - Zero plain-text credentials.
- * Supports:
- * - 4 to 6 digit Numeric PIN or Alphanumeric Password
- * - User-created personal recovery secret key
- * - 3-attempt Biometric lockout with "Try PIN or password" redirection
- * - Dual-Camera intruder capture (Front selfie + Rear environment photo)
- */
 class SecurityRepository private constructor(context: Context) {
 
     private val prefs: SharedPreferences
@@ -40,121 +33,242 @@ class SecurityRepository private constructor(context: Context) {
 
         fun getInstance(context: Context): SecurityRepository {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: SecurityRepository(context.applicationContext).also { INSTANCE = it }
+                INSTANCE ?: SecurityRepository(
+                    context.applicationContext
+                ).also { INSTANCE = it }
             }
+        }
+
+        private const val HASH_ITERATIONS = 120_000
+        private const val HASH_LENGTH = 256
+    }
+
+    private fun createSalt(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun hashSecret(secret: String, saltHex: String): String {
+        val salt = ByteArray(saltHex.length / 2) {
+            saltHex.substring(it * 2, it * 2 + 2).toInt(16).toByte()
+        }
+
+        val spec = PBEKeySpec(
+            secret.toCharArray(),
+            salt,
+            HASH_ITERATIONS,
+            HASH_LENGTH
+        )
+
+        return try {
+            val factory = SecretKeyFactory.getInstance(
+                "PBKDF2WithHmacSHA256"
+            )
+            factory.generateSecret(spec).encoded.joinToString("") {
+                "%02x".format(it)
+            }
+        } finally {
+            spec.clearPassword()
         }
     }
 
-    fun isConfigured(): Boolean = prefs.contains("credential_hash")
+    private fun verifyHash(
+        candidate: String,
+        saltKey: String,
+        hashKey: String
+    ): Boolean {
+        val salt = prefs.getString(saltKey, null) ?: return false
+        val savedHash = prefs.getString(hashKey, null) ?: return false
 
-    fun getLockType(): String = prefs.getString("lock_type", "pin") ?: "pin"
+        val candidateHash = hashSecret(candidate, salt)
 
-    fun getPinLength(): Int = prefs.getInt("pin_length", 4)
+        return MessageDigest.isEqual(
+            candidateHash.toByteArray(Charsets.UTF_8),
+            savedHash.toByteArray(Charsets.UTF_8)
+        )
+    }
 
-    /**
-     * Saves master credential (PIN 4-6 numbers or Password) with random 16-byte salt and SHA-256
-     */
-    fun saveCredential(type: String, credential: String, pinLength: Int = 4) {
-        val salt = ByteArray(16)
-        SecureRandom().nextBytes(salt)
-        val saltHex = salt.joinToString("") { "%02x".format(it) }
-        val hash = computeSha256("$saltHex:$credential:PRIVORA_PEPPER")
+    // PIN / Password
+
+    fun isConfigured(): Boolean {
+        return prefs.contains("credential_hash")
+    }
+
+    fun getLockType(): String {
+        return prefs.getString("lock_type", "pin") ?: "pin"
+    }
+
+    fun getPinLength(): Int {
+        return prefs.getInt("pin_length", 4)
+    }
+
+    fun saveCredential(
+        type: String,
+        credential: String,
+        pinLength: Int = 4
+    ) {
+        val salt = createSalt()
+        val hash = hashSecret(credential, salt)
 
         prefs.edit()
             .putString("lock_type", type)
             .putInt("pin_length", pinLength)
-            .putString("credential_salt", saltHex)
+            .putString("credential_salt", salt)
             .putString("credential_hash", hash)
             .apply()
     }
 
     fun verifyCredential(candidate: String): Boolean {
-        val saltHex = prefs.getString("credential_salt", null) ?: return false
-        val storedHash = prefs.getString("credential_hash", null) ?: return false
-        val computed = computeSha256("$saltHex:$candidate:PRIVORA_PEPPER")
-        return computed == storedHash
+        return verifyHash(
+            candidate,
+            "credential_salt",
+            "credential_hash"
+        )
     }
 
-    /**
-     * User-created personal secret recovery key (Never auto-generated without user choice)
-     */
+    // Personal Recovery Key
+
+    fun hasRecoveryKey(): Boolean {
+        return prefs.contains("recovery_hash")
+    }
+
     fun savePersonalRecoveryKey(customKey: String) {
-        val trimmed = customKey.trim()
-        val salt = ByteArray(16)
-        SecureRandom().nextBytes(salt)
-        val saltHex = salt.joinToString("") { "%02x".format(it) }
-        val hash = computeSha256("$saltHex:$trimmed:PRIVORA_RECOVERY")
+        val key = customKey.trim()
+        require(key.length >= 8) {
+            "Recovery key must contain at least 8 characters"
+        }
+
+        val salt = createSalt()
+        val hash = hashSecret(key, salt)
 
         prefs.edit()
-            .putString("recovery_salt", saltHex)
+            .putString("recovery_salt", salt)
             .putString("recovery_hash", hash)
-            .putString("recovery_display", trimmed)
             .apply()
     }
 
     fun verifyPersonalRecoveryKey(candidate: String): Boolean {
-        val trimmed = candidate.trim()
-        val saltHex = prefs.getString("recovery_salt", null) ?: return false
-        val storedHash = prefs.getString("recovery_hash", null) ?: return false
-        val computed = computeSha256("$saltHex:$trimmed:PRIVORA_RECOVERY")
-        return computed == storedHash
+        return verifyHash(
+            candidate.trim(),
+            "recovery_salt",
+            "recovery_hash"
+        )
     }
 
-    /**
-     * Biometric 3-failure lockout rules:
-     * Exceeding 3 biometric attempts locks out sensor and redirects to PIN or Password.
-     */
-    fun getBiometricFailures(): Int = prefs.getInt("bio_fail_count", 0)
+    // Biometric settings and failed-attempt count
+
+    fun isBiometricEnabled(): Boolean {
+        return prefs.getBoolean("biometric_enabled", false)
+    }
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean("biometric_enabled", enabled)
+            .apply()
+    }
+
+    fun getBiometricFailures(): Int {
+        return prefs.getInt("bio_fail_count", 0)
+    }
 
     fun recordBiometricFailure(): Int {
-        val current = getBiometricFailures() + 1
-        prefs.edit().putInt("bio_fail_count", current).apply()
-        return current
+        val count = getBiometricFailures() + 1
+        prefs.edit().putInt("bio_fail_count", count).apply()
+        return count
     }
 
-    fun isBiometricLockedOut(): Boolean = getBiometricFailures() >= 3
+    fun isBiometricLockedOut(): Boolean {
+        return getBiometricFailures() >= 3
+    }
 
     fun resetBiometricFailures() {
         prefs.edit().putInt("bio_fail_count", 0).apply()
     }
 
-    /**
-     * Dual-Camera Intruder Capture Configuration (Front Selfie + Rear Environment Photo)
-     */
-    fun isDualCameraCaptureEnabled(): Boolean = prefs.getBoolean("dual_camera_capture", true)
+    // Intruder capture settings
 
-    fun setDualCameraCaptureEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("dual_camera_capture", enabled).apply()
+    fun isIntruderSelfieEnabled(): Boolean {
+        return prefs.getBoolean("intruder_selfie_enabled", false)
     }
-
-    fun isIntruderSelfieEnabled(): Boolean = prefs.getBoolean("intruder_selfie_enabled", true)
 
     fun setIntruderSelfieEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("intruder_selfie_enabled", enabled).apply()
+        prefs.edit()
+            .putBoolean("intruder_selfie_enabled", enabled)
+            .apply()
     }
 
-    private fun computeSha256(input: String): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        val bytes = md.digest(input.toByteArray(Charsets.UTF_8))
-        return bytes.joinToString("") { "%02x".format(it) }
+    fun isDualCameraCaptureEnabled(): Boolean {
+        return prefs.getBoolean("dual_camera_capture", false)
     }
 
-    fun isMasterProtectionActive(): Boolean = prefs.getBoolean("master_protection", true)
+    fun setDualCameraCaptureEnabled(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean("dual_camera_capture", enabled)
+            .apply()
+    }
+
+    fun getWrongPinAttempts(): Int {
+        return prefs.getInt("wrong_pin_attempts", 0)
+    }
+
+    fun recordWrongPinAttempt(): Int {
+        val count = getWrongPinAttempts() + 1
+        prefs.edit()
+            .putInt("wrong_pin_attempts", count)
+            .apply()
+        return count
+    }
+
+    fun shouldCaptureIntruder(): Boolean {
+        return getWrongPinAttempts() >= 4 &&
+            !prefs.getBoolean("intruder_capture_done", false) &&
+            (isIntruderSelfieEnabled() || isDualCameraCaptureEnabled())
+    }
+
+    fun markIntruderCaptureDone() {
+        prefs.edit()
+            .putBoolean("intruder_capture_done", true)
+            .apply()
+    }
+
+    fun resetWrongPinAttempts() {
+        prefs.edit()
+            .putInt("wrong_pin_attempts", 0)
+            .putBoolean("intruder_capture_done", false)
+            .apply()
+    }
+
+    // Main protection switch
+
+    fun isMasterProtectionActive(): Boolean {
+        return prefs.getBoolean("master_protection", false)
+    }
 
     fun setMasterProtectionActive(active: Boolean) {
-        prefs.edit().putBoolean("master_protection", active).apply()
+        prefs.edit()
+            .putBoolean("master_protection", active)
+            .apply()
     }
 
-    fun getLockedPackageNames(): Set<String> {
-        return prefs.getStringSet("locked_packages", emptySet()) ?: emptySet()
+    // Relock preference
+
+    fun setRelockInterval(value: String) {
+        val allowed = setOf("immediate", "delay_1m", "delay_5m")
+        require(value in allowed)
+
+        prefs.edit()
+            .putString("relock_interval", value)
+            .apply()
     }
 
-    fun setLockedPackageNames(packages: Set<String>) {
-        prefs.edit().putStringSet("locked_packages", packages).apply()
+    fun getRelockInterval(): String {
+        return prefs.getString("relock_interval", "immediate")
+            ?: "immediate"
     }
 
     fun getRelockDelayMillis(): Long {
-        return when (prefs.getString("relock_interval", "immediate")) {
+        return when (getRelockInterval()) {
             "delay_1m" -> 60_000L
             "delay_5m" -> 300_000L
             else -> 0L
