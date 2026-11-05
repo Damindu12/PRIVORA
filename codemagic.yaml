@@ -1,0 +1,19 @@
+
+workflows:
+  privora-android:
+    name: PRIVORA Android Build
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    scripts:
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Build PRIVORA APK
+        script: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+
+    artifacts:
+      - app/build/outputs/**/*.apk
