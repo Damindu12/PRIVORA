@@ -2,7 +2,7 @@ package com.privora.app.ui
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
@@ -21,7 +21,7 @@ import androidx.core.content.ContextCompat
 import com.privora.app.data.LockedAppsRepository
 import com.privora.app.security.SecurityRepository
 
-class LockScreenActivity : ComponentActivity() {
+class LockScreenActivity : FragmentActivity() {
 
     companion object {
         const val EXTRA_PACKAGE_NAME = "locked_package_name"

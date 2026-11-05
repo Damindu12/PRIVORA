@@ -10,12 +10,14 @@ android {
 
     defaultConfig {
         applicationId = "com.privora.app"
-        minSdk = 28 // Android 9.0 (Pie) required minimum
-        targetSdk = 35 // Android 15
+        minSdk = 28
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0.0-PROTOTYPE"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner =
+            "androidx.test.runner.AndroidJUnitRunner"
+
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -25,10 +27,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -55,27 +59,30 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+
     implementation("androidx.activity:activity-compose:1.10.0")
 
+    implementation("androidx.fragment:fragment-ktx:1.8.6")
+
     implementation(platform("androidx.compose:compose-bom:2025.02.00"))
+
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
+
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Android Biometrics
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
 
-    // Hardware Security & Keystore
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Navigation & Coroutines
     implementation("androidx.navigation:navigation-compose:2.8.7")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
 
-    // CameraX for Intruder Selfie
     implementation("androidx.camera:camera-core:1.4.1")
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
