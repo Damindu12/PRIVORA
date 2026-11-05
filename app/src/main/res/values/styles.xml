@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Privora" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#6750A4</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#101014</item>
+        <item name="android:navigationBarColor">#101014</item>
+        <item name="android:windowBackground">#101014</item>
+    </style>
+
+    <style name="Theme.Privora.LockOverlay" parent="Theme.Privora">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowShowWhenLocked">true</item>
+        <item name="android:windowBackground">#101014</item>
+    </style>
+
+</resources>
